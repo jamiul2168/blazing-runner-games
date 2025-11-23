@@ -9,13 +9,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght[400;700]&display=swap" rel="stylesheet"> 
     
     <style>
-        /* সমস্ত CSS স্টাইল এখানে */
         body { 
             display: flex; justify-content: center; align-items: center; 
             height: 100vh; margin: 0; 
             background-color: #0f0a1c; 
             font-family: 'Orbitron', sans-serif; 
             user-select: none; touch-action: manipulation;
+            overflow: hidden;
         }
         #game-container {
             position: relative;
@@ -93,12 +93,21 @@
             align-items: center;
             font-size: 3em;
             color: white;
-            pointer-events: none; /* যাতে টাচ এরিয়া কাজ করে */
+            pointer-events: none;
             opacity: 0;
             transition: opacity 0.3s;
         }
 
         #touch-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; cursor: pointer; }
+        
+        /* High Score Display */
+        #high-score-display {
+            position: absolute; top: 15px; right: 15px; color: #FFD700; 
+            font-size: 1.2em; padding: 8px 18px; background: rgba(0, 0, 0, 0.8);
+            border-radius: 5px; letter-spacing: 2px; font-weight: bold;
+            text-shadow: 0 0 8px #FFD700;
+            border: 1px solid #FFD700;
+        }
     </style>
 </head>
 <body>
@@ -106,8 +115,11 @@
         <canvas id="gameCanvas" width="900" height="350"></canvas>
         
         <div id="score-display">SCORE: 000000</div>
+        <div id="high-score-display">HIGH: 000000</div>
         <div id="touch-area"></div>
-        <div id="mobile-jump-icon">👆</div> <div id="start-screen" class="overlay active">
+        <div id="mobile-jump-icon">👆</div>
+        
+        <div id="start-screen" class="overlay active">
             <h1>BLAZING RUNNER</h1>
             <h2>ULTRA-FAST ARCADE ACTION</h2>
             
@@ -127,8 +139,8 @@
         <div id="game-over-screen" class="overlay">
             <h1>GAME OVER</h1>
             <h2 id="final-score">Final Score: 0</h2>
-            <button onclick="location.reload()">RETRY (R)</button>
-             <p class="developer-credit">Developed by: Jamiul Hasan</p>
+            <button id="retryButton">RETRY (R)</button>
+            <p class="developer-credit">Developed by: Jamiul Hasan</p>
         </div>
     </div>
 
@@ -142,15 +154,17 @@
             const canvas = document.getElementById('gameCanvas');
             const ctx = canvas.getContext('2d');
             const scoreDisplay = document.getElementById('score-display');
+            const highScoreDisplay = document.getElementById('high-score-display');
             const gameOverScreen = document.getElementById('game-over-screen');
             const startScreen = document.getElementById('start-screen');
             const touchArea = document.getElementById('touch-area');
             const startButton = document.getElementById('startButton');
+            const retryButton = document.getElementById('retryButton');
             const mobileJumpIcon = document.getElementById('mobile-jump-icon');
 
             const GROUND_Y = canvas.height - 40;
             
-            // DIFFICULTY SETTINGS (NEW)
+            // DIFFICULTY SETTINGS (IMPROVED)
             const BASE_SPEED = 300;
             const BASE_GRAVITY = 1800;
             const BASE_JUMP = -550;
@@ -172,6 +186,8 @@
             const BOOST_SCORE_INTERVAL = 500;
             const SPEED_BOOST_AMOUNT = 100; 
             const GROUND_TILE_WIDTH = 50; 
+            const OBSTACLE_SPAWN_MIN_GAP = 80;
+            const OBSTACLE_SPAWN_MAX_GAP = 200;
 
             // --- 2. GLOBAL VARIABLES ---
             let GAME_SPEED = SETTINGS.normal.speed;
@@ -187,70 +203,76 @@
             let jumpFlashTimer = 0; 
             let lastObstacleHeight = 0;
             let lastObstacleSpawnedTime = 0;
+            let obstacleSpawnTimer = 0;
 
-
-            // --- 3. SOUND MANAGER (AUDIO CONTEXT FIX) ---
-            const ASSET_PATH = 'assets/';
+            // --- 3. SOUND MANAGER (IMPROVED) ---
             let audioContext;
+            let audioInitialized = false;
 
             class SoundManager {
                 constructor() {
-                    try {
-                        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    } catch (e) {
-                        console.warn('Web Audio API not supported. Using standard Audio.');
-                        audioContext = null;
-                    }
-
-                    this.jumpBuffer = this.loadAudioBuffer('jump.mp3');
-                    this.gameOverBuffer = this.loadAudioBuffer('game_over.mp3'); 
+                    this.sounds = {};
+                    this.audioContext = null;
+                    this.init();
                 }
                 
-                // AudioContext ব্যবহার করে ফাইল লোড করা
-                loadAudioBuffer(filename) {
-                    if (!audioContext) return null;
-                    const request = new XMLHttpRequest();
-                    request.open('GET', ASSET_PATH + filename, true);
-                    request.responseType = 'arraybuffer';
-                    
-                    return new Promise(resolve => {
-                        request.onload = function() {
-                            audioContext.decodeAudioData(request.response, function(buffer) {
-                                resolve(buffer);
-                            }, e => console.error(`Error decoding ${filename}:`, e));
-                        };
-                        request.send();
-                    });
+                async init() {
+                    try {
+                        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        audioContext = this.audioContext;
+                        audioInitialized = true;
+                        
+                        // Create simple tones for sounds
+                        this.sounds.jump = this.createTone(523.25, 0.1); // C5
+                        this.sounds.gameOver = this.createTone(220, 0.5); // A3
+                        this.sounds.boost = this.createTone(659.25, 0.2); // E5
+                    } catch (e) {
+                        console.warn('Web Audio API not supported. Game will run without sound.');
+                    }
+                }
+                
+                createTone(frequency, duration) {
+                    return () => {
+                        if (!this.audioContext) return;
+                        
+                        const oscillator = this.audioContext.createOscillator();
+                        const gainNode = this.audioContext.createGain();
+                        
+                        oscillator.connect(gainNode);
+                        gainNode.connect(this.audioContext.destination);
+                        
+                        oscillator.frequency.value = frequency;
+                        oscillator.type = 'sine';
+                        
+                        gainNode.gain.setValueAtTime(0.3, this.audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + duration);
+                        
+                        oscillator.start(this.audioContext.currentTime);
+                        oscillator.stop(this.audioContext.currentTime + duration);
+                    };
                 }
 
-                // AudioContext ব্যবহার করে সাউন্ড প্লে করা
-                play(bufferPromise) {
-                    if (!audioContext) return;
-                    bufferPromise.then(buffer => {
-                        if (buffer) {
-                            const source = audioContext.createBufferSource();
-                            source.buffer = buffer;
-                            source.connect(audioContext.destination);
-                            source.start(0);
-                        }
-                    });
+                play(soundName) {
+                    if (this.sounds[soundName]) {
+                        this.sounds[soundName]();
+                    }
                 }
 
-                playJump() { this.play(this.jumpBuffer); }
-                playGameOver() { this.play(this.gameOverBuffer); }
-                playBoost() { /* No Boost sound */ } 
+                playJump() { this.play('jump'); }
+                playGameOver() { this.play('gameOver'); }
+                playBoost() { this.play('boost'); }
             }
             
-            // --- 4. ENTITIES (Class definitions) ---
+            // --- 4. ENTITIES (Improved) ---
 
             class Mountains {
-                // ... (আগের কোড - অপরিবর্তিত) ...
                 constructor(canvas, GROUND_Y) {
                     this.ctx = canvas.getContext('2d');
                     this.width = canvas.width;
                     this.GROUND_Y = GROUND_Y;
                     this.mountainX = 0;
                 }
+                
                 draw(GAME_SPEED) {
                     const speedFactor = 0.2; 
                     const FIXED_MOVEMENT = (GAME_SPEED / 1000) * (1000/60); 
@@ -275,22 +297,24 @@
             }
 
             class Player {
-                constructor(canvas, GROUND_Y, MAX_JUMP_VELOCITY, soundManager) {
+                constructor(canvas, GROUND_Y, soundManager) {
                     this.ctx = canvas.getContext('2d');
                     this.soundManager = soundManager;
                     this.GROUND_Y = GROUND_Y;
-                    this.MAX_JUMP_VELOCITY = MAX_JUMP_VELOCITY; 
 
-                    this.baseGravity = BASE_GRAVITY; 
-                    this.baseMaxJumpVelocity = MAX_JUMP_VELOCITY; 
-
-                    this.gravity = this.baseGravity; 
-                    
                     this.initialY = GROUND_Y - 50;
-                    this.x = 50; this.y = this.initialY; this.width = 30; this.height = 50;
-                    this.velocityY = 0; this.isJumping = false;
+                    this.x = 50; 
+                    this.y = this.initialY; 
+                    this.width = 30; 
+                    this.height = 50;
+                    this.velocityY = 0; 
+                    this.isJumping = false;
                     this.hitboxOffset = {x: 5, y: 5, width: -10, height: -5}; 
                     this.successfulJumps = 0; 
+                    
+                    // Settings will be applied on reset
+                    this.gravity = 0;
+                    this.MAX_JUMP_VELOCITY = 0;
                 }
 
                 reset() {
@@ -298,23 +322,32 @@
                     this.velocityY = 0;
                     this.isJumping = false;
                     this.successfulJumps = 0; 
-                    // রিসেট করার সময় সেটিং থেকে মান নেওয়া হবে (নতুন লজিক)
-                    this.gravity = SETTINGS[SETTINGS.selected_speed].gravity; 
-                    this.MAX_JUMP_VELOCITY = SETTINGS[SETTINGS.selected_speed].jump; 
+                    
+                    // Apply current settings
+                    const currentSettings = SETTINGS[SETTINGS.selected_speed];
+                    this.gravity = currentSettings.gravity;
+                    this.MAX_JUMP_VELOCITY = currentSettings.jump;
                 }
 
                 draw(frameCount, gameState) {
-                    // ... (আগের draw কোড - অপরিবর্তিত) ...
+                    // Player body with glow effect
                     this.ctx.shadowColor = '#FF00FF'; 
                     this.ctx.shadowBlur = 10;
                     this.ctx.fillStyle = '#FF00FF'; 
                     this.ctx.fillRect(this.x, this.y, this.width, this.height);
                     this.ctx.shadowBlur = 0; 
 
+                    // Running animation (legs)
                     if (gameState === GameState.RUNNING && !this.isJumping) {
                         this.ctx.fillStyle = (frameCount % 8 < 4) ? '#00FFFF' : '#00AABB'; 
                         this.ctx.fillRect(this.x + 5, this.y + this.height - 10, 5, 10); 
                         this.ctx.fillRect(this.x + 20, this.y + this.height - 10, 5, 10);
+                    }
+                    
+                    // Jump effect
+                    if (this.isJumping && this.velocityY < 0) {
+                        this.ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
+                        this.ctx.fillRect(this.x - 10, this.y + this.height, 50, 10);
                     }
                 }
                 
@@ -348,7 +381,6 @@
             }
 
             class Obstacle {
-                // ... (আগের Obstacle কোড - অপরিবর্তিত) ...
                 constructor(canvas, GROUND_Y, customHeight) {
                     this.ctx = canvas.getContext('2d');
                     this.width = Math.random() * 20 + 20;
@@ -358,6 +390,7 @@
                     this.color = '#FF00FF'; 
                     this.passed = false; 
                 }
+                
                 draw() {
                     this.ctx.shadowColor = '#FF00FF';
                     this.ctx.shadowBlur = 10;
@@ -365,12 +398,12 @@
                     this.ctx.fillRect(this.x, this.y, this.width, this.height);
                     this.ctx.shadowBlur = 0;
                 }
+                
                 update(GAME_SPEED) {
                     const FIXED_MOVEMENT = (GAME_SPEED / 1000) * (1000/60); 
                     this.x -= FIXED_MOVEMENT;
                 }
             }
-
 
             // --- 5. GAME LOGIC CORE ---
             
@@ -381,18 +414,17 @@
             let obstacles = [];
 
             function initializeGameObjects() {
-                // AudioContext ইনিশিয়ালাইজেশন: ইউজার ইন্টারেকশনের সময় কল হবে
-                if (!soundManager) soundManager = new SoundManager();
-                
-                // Player এর প্যারামিটার সেটিং থেকে নেওয়া হবে
+                soundManager = new SoundManager();
                 mountains = new Mountains(canvas, GROUND_Y); 
-                player = new Player(canvas, GROUND_Y, SETTINGS[SETTINGS.selected_speed].jump, soundManager);
+                player = new Player(canvas, GROUND_Y, soundManager);
                 obstacles = []; 
-                GAME_SPEED = SETTINGS[SETTINGS.selected_speed].speed; // গেমের গতি সেটিং থেকে সেট করা
+                GAME_SPEED = SETTINGS[SETTINGS.selected_speed].speed;
+                
+                // Reset player with current settings
+                player.reset();
             }
 
             function drawGround() {
-                // ... (আগের drawGround কোড - অপরিবর্তিত) ...
                 const FIXED_MOVEMENT = (GAME_SPEED / 1000) * (1000/60); 
                 groundX = (groundX - FIXED_MOVEMENT) % GROUND_TILE_WIDTH;
                 
@@ -420,49 +452,51 @@
             }
 
             function dynamicDifficulty() {
-                // ... (AI logic - অপরিবর্তিত) ...
+                // Gradually increase game speed
                 if (GAME_SPEED < MAX_SPEED) {
                     GAME_SPEED += (DIFFICULTY_INCREMENT / FPS_MULTIPLIER) * deltaTime;
                 }
 
+                // Speed boost at score intervals
                 if (score > lastBoostScore + BOOST_SCORE_INTERVAL) {
                     if (GAME_SPEED + SPEED_BOOST_AMOUNT < MAX_SPEED) {
                          GAME_SPEED += SPEED_BOOST_AMOUNT;
+                         soundManager.playBoost();
                     } else {
                         GAME_SPEED = MAX_SPEED;
                     }
                     lastBoostScore = score;
                 }
 
+                // AI difficulty adjustment based on player performance
                 if (player && player.successfulJumps >= AI_SUCCESS_THRESHOLD) {
-                    if (player.gravity < player.baseGravity + AI_GRAVITY_MODIFIER * 3) {
+                    if (player.gravity < BASE_GRAVITY + AI_GRAVITY_MODIFIER * 3) {
                         player.gravity += AI_GRAVITY_MODIFIER; 
                         player.MAX_JUMP_VELOCITY -= 50; 
                         player.successfulJumps = 0;
                     }
                 }
 
-                let minGap = 80;
-                let maxGap = 200;
+                // Adjust obstacle spawn gap based on game speed
                 const gapFactor = 1 - (GAME_SPEED / MAX_SPEED) * 0.7;
-                const currentGap = minGap + (maxGap - minGap) * gapFactor;
+                const currentGap = OBSTACLE_SPAWN_MIN_GAP + (OBSTACLE_SPAWN_MAX_GAP - OBSTACLE_SPAWN_MIN_GAP) * gapFactor;
                 return currentGap;
             }
 
-            let obstacleSpawnTimer = 0;
             function generateObstacles() {
-                // ... (আগের generateObstacles কোড - অপরিবর্তিত) ...
                 const spawnGap = dynamicDifficulty();
 
                 if (obstacleSpawnTimer <= 0) {
                     let randomHeight = Math.random() * 30 + 30; 
                     const currentTime = performance.now();
                     
+                    // Prevent spawning obstacles too close together when player is jumping
                     if (player && player.isJumping && player.velocityY < 0 && currentTime - lastObstacleSpawnedTime < 500) {
                          obstacleSpawnTimer = 200; 
                          return; 
                     }
 
+                    // Occasionally spawn lower obstacles after high ones
                     if (lastObstacleHeight > 50 && Math.random() < 0.6) {
                         randomHeight = Math.random() * 15 + 20; 
                     }
@@ -480,10 +514,10 @@
             }
 
             function trackPlayerSuccess() {
-                // ... (আগের trackPlayerSuccess কোড - অপরিবর্তিত) ...
                 if (!player) return;
                 const playerBaseY = player.GROUND_Y - player.height;
                 
+                // Check if player successfully jumped over an obstacle
                 if (player.y < playerBaseY && player.velocityY > 0) {
                     const nearestObstacle = obstacles[0];
                     
@@ -497,7 +531,6 @@
             }
 
             function checkCollision() {
-                // ... (আগের checkCollision কোড - অপরিবর্তিত) ...
                  if (!player) return false;
                 const playerHitbox = player.getHitbox();
                 for (let i = 0; i < obstacles.length; i++) {
@@ -517,30 +550,34 @@
             }
 
             function resetGame() {
-                // ... (আগের resetGame কোড) ...
                 if (score > highScore) {
                     highScore = score;
                     localStorage.setItem('runnerHighScore', highScore);
+                    updateHighScoreDisplay();
                 }
                 score = 0;
-                // গতির মান সেটিং থেকে নেওয়া হয়েছে
                 GAME_SPEED = SETTINGS[SETTINGS.selected_speed].speed;
                 lastBoostScore = 0;
                 obstacles = [];
+                obstacleSpawnTimer = 0;
                 if (player) player.reset();
                 frameCount = 0;
                 highScore = localStorage.getItem('runnerHighScore') || 0;
             }
 
+            function updateHighScoreDisplay() {
+                highScoreDisplay.textContent = `HIGH: ${highScore.toString().padStart(6, '0')}`;
+            }
+
             function startGame() {
                 if (gameState === GameState.RUNNING) return;
                 
-                // গেম শুরু করার সময় সমস্ত অবজেক্ট ইনিশিয়ালাইজ করা
+                // Initialize game objects if not already done
                 if (!player) {
                     initializeGameObjects();
                 }
                 
-                // AudioContext Resume/Start (সাউন্ড ফিক্স)
+                // Resume audio context if needed
                 if (audioContext && audioContext.state === 'suspended') {
                     audioContext.resume();
                 }
@@ -555,7 +592,6 @@
             }
 
             function endGame() {
-                // ... (আগের endGame কোড - অপরিবর্তিত) ...
                 if (gameState === GameState.OVER) return;
                 gameState = GameState.OVER;
                 cancelAnimationFrame(animationFrameId);
@@ -564,11 +600,10 @@
                     `Final Score: <span style="color:#FF00FF">${score.toString().padStart(6, '0')}</span><br>
                      High Score: ${highScore.toString().padStart(6, '0')}`;
                 gameOverScreen.classList.add('active');
-                if (soundManager) soundManager.playGameOver();
+                soundManager.playGameOver();
             }
 
             function gameLoop(currentTime) {
-                // ... (আগের gameLoop কোড - অপরিবর্তিত) ...
                 deltaTime = currentTime - lastTime;
                 lastTime = currentTime;
                 const dt = deltaTime / FPS_MULTIPLIER; 
@@ -578,7 +613,7 @@
                     return;
                 }
 
-                // A. আপডেট
+                // A. Update game state
                 player.update(dt); 
                 generateObstacles();
                 obstacles.forEach(obs => obs.update(GAME_SPEED));
@@ -586,7 +621,7 @@
                 checkCollision();
                 trackPlayerSuccess();
 
-                // B. ড্র
+                // B. Render everything
                 ctx.fillStyle = '#0f0a1c'; 
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 mountains.draw(GAME_SPEED);
@@ -594,14 +629,14 @@
                 player.draw(frameCount, gameState);
                 obstacles.forEach(obs => obs.draw());
 
-                // C. UX/UI ফিডব্যাক
+                // C. Visual effects
                 if (jumpFlashTimer > 0) {
                     ctx.fillStyle = `rgba(0, 255, 255, ${jumpFlashTimer * 0.5})`; 
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
                     jumpFlashTimer -= dt * 2; 
                 }
 
-                // D. স্কোরিং
+                // D. Scoring
                 frameCount++;
                 score += Math.floor(GAME_SPEED * dt); 
                 
@@ -614,9 +649,11 @@
                 animationFrameId = requestAnimationFrame(gameLoop);
             }
 
-            // --- 6. INPUT HANDLING & SETTINGS (NEW) ---
+            // --- 6. INPUT HANDLING & SETTINGS ---
             function handleJumpInput(event) {
-                if (event && event.type === 'touchstart') { event.preventDefault(); }
+                if (event && event.type === 'touchstart') { 
+                    event.preventDefault(); 
+                }
                 
                 if (gameState === GameState.READY) {
                     startGame();
@@ -626,7 +663,6 @@
                 }
             }
             
-            // কন্ট্রোল ভিজিবিলিটি আপডেট করা
             function updateControlVisibility() {
                 mobileJumpIcon.style.opacity = SETTINGS.controls_visible ? 1 : 0;
             }
@@ -645,6 +681,11 @@
 
                     if (settingType === 'speed') {
                         SETTINGS.selected_speed = value;
+                        // Update game speed if running
+                        if (gameState === GameState.RUNNING) {
+                            GAME_SPEED = SETTINGS[value].speed;
+                            if (player) player.reset();
+                        }
                     } else if (settingType === 'control') {
                         SETTINGS.controls_visible = (value === 'visible');
                         updateControlVisibility();
@@ -652,24 +693,24 @@
                 });
             });
 
-
             // ইভেন্ট লিসেনার সেটআপ
             document.addEventListener('keydown', (event) => {
                 if (event.code === 'Space' || event.code === 'ArrowUp') {
                     handleJumpInput(event);
                 }
                 if (gameState === GameState.OVER && (event.code === 'Enter' || event.code === 'KeyR')) {
-                     location.reload(); 
+                    startGame();
                 }
             });
 
             touchArea.addEventListener('mousedown', handleJumpInput); 
             touchArea.addEventListener('touchstart', handleJumpInput); 
             startButton.addEventListener('click', handleJumpInput); 
+            retryButton.addEventListener('click', startGame);
 
             // হাই স্কোর লোড ও ডিসপ্লে
             highScore = localStorage.getItem('runnerHighScore') || 0;
-            document.getElementById('final-score').innerHTML = `High Score: ${highScore.toString().padStart(6, '0')}`;
+            updateHighScoreDisplay();
             
             // প্রাথমিক ভিজিবিলিটি সেট করা
             updateControlVisibility(); 
