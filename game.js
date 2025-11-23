@@ -13,7 +13,7 @@ const scoreDisplay = document.getElementById('score-display');
 const gameOverScreen = document.getElementById('game-over-screen');
 const startScreen = document.getElementById('start-screen');
 const touchArea = document.getElementById('touch-area');
-const startButton = document.getElementById('startButton');
+const startButton = document.getElementById('startButton'); // <--- নতুন বাটন ID সংজ্ঞায়িত
 
 const GROUND_Y = canvas.height - 40;
 const INITIAL_SPEED = 300; 
@@ -50,7 +50,7 @@ let deltaTime = 0;
 const FPS_MULTIPLIER = 1000; 
 let jumpFlashTimer = 0; 
 
-// --- ভিজ্যুয়াল লজিক: রিপিটিং গ্রাউন্ড ---
+// --- ভিজ্যুয়াল লজিক: রিপিটিং গ্রাউন্ড (drawGround) ---
 function drawGround() {
     const FIXED_MOVEMENT = (GAME_SPEED / 1000) * (1000/60); 
     groundX = (groundX - FIXED_MOVEMENT) % GROUND_TILE_WIDTH;
@@ -78,24 +78,21 @@ function drawGround() {
     ctx.stroke();
 }
 
-// --- AI লজিক: ডায়নামিক ডিফিকাল্টি স্কেলিং ও বুস্ট ---
+// --- AI লজিক: ডায়নামিক ডিফিকাল্টি স্কেলিং ও বুস্ট (dynamicDifficulty) ---
 function dynamicDifficulty() {
     if (GAME_SPEED < MAX_SPEED) {
         GAME_SPEED += (DIFFICULTY_INCREMENT / FPS_MULTIPLIER) * deltaTime;
     }
 
-    // বুস্ট লজিক (সাউন্ড প্লে করার কোড audio.js থেকে সরানো হয়েছে)
     if (score > lastBoostScore + BOOST_SCORE_INTERVAL) {
         if (GAME_SPEED + SPEED_BOOST_AMOUNT < MAX_SPEED) {
              GAME_SPEED += SPEED_BOOST_AMOUNT;
-             // soundManager.playBoost(); // কোড থেকে সরানো হলো
         } else {
             GAME_SPEED = MAX_SPEED;
         }
         lastBoostScore = score;
     }
 
-    // নতুন AI লজিক: গেম অ্যাডাপ্টেশন (Adaptive AI)
     if (player.successfulJumps >= AI_SUCCESS_THRESHOLD) {
         if (player.gravity < player.baseGravity + AI_GRAVITY_MODIFIER * 3) {
             player.gravity += AI_GRAVITY_MODIFIER; 
@@ -117,8 +114,6 @@ function generateObstacles() {
     const spawnGap = dynamicDifficulty();
 
     if (obstacleSpawnTimer <= 0) {
-        
-        // --- স্মার্টার স্পাওনিং AI লজিক ---
         let randomHeight = Math.random() * 30 + 30; 
         const currentTime = performance.now();
         
@@ -143,7 +138,7 @@ function generateObstacles() {
     }
 }
 
-// --- AI ট্র্যাকিং: সফল জাম্প গণনা ---
+// --- AI ট্র্যাকিং: সফল জাম্প গণনা (trackPlayerSuccess) ---
 function trackPlayerSuccess() {
     const playerBaseY = player.GROUND_Y - player.height;
     
@@ -160,6 +155,7 @@ function trackPlayerSuccess() {
     }
 }
 
+// --- কলিশন ডিটেকশন (checkCollision) ---
 function checkCollision() {
     const playerHitbox = player.getHitbox();
     for (let i = 0; i < obstacles.length; i++) {
@@ -178,7 +174,7 @@ function checkCollision() {
     return false;
 }
 
-// --- গেম স্টেট ম্যানেজমেন্ট ---
+// --- গেম স্টেট ম্যানেজমেন্ট (startGame, endGame, resetGame) ---
 function resetGame() {
     if (score > highScore) {
         highScore = score;
@@ -216,14 +212,13 @@ function endGame() {
     soundManager.playGameOver();
 }
 
-// --- প্রধান গেম লুপ (Delta Time) ---
+// --- প্রধান গেম লুপ (gameLoop) ---
 function gameLoop(currentTime) {
     deltaTime = currentTime - lastTime;
     lastTime = currentTime;
     const dt = deltaTime / FPS_MULTIPLIER; 
 
     if (gameState !== GameState.RUNNING) {
-        // যদি গেম চলছে না, তবুও টাচ ফ্ল্যাশ পরিষ্কার করা হয়
         if (jumpFlashTimer > 0) jumpFlashTimer -= dt;
         return;
     }
@@ -244,7 +239,7 @@ function gameLoop(currentTime) {
     player.draw(frameCount, gameState);
     obstacles.forEach(obs => obs.draw());
 
-    // C. UX/UI ফ্ল্যাশ
+    // C. UX/UI ফিডব্যাক
     if (jumpFlashTimer > 0) {
         ctx.fillStyle = `rgba(0, 255, 255, ${jumpFlashTimer * 0.5})`; 
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -289,7 +284,7 @@ touchArea.addEventListener('mousedown', handleJumpInput);
 touchArea.addEventListener('touchstart', handleJumpInput); 
 
 // startButton কে ইভেন্ট লিসেনার দিয়ে হ্যান্ডেল করা হচ্ছে
-startButton.addEventListener('click', handleJumpInput);
+startButton.addEventListener('click', handleJumpInput); // <--- ফিক্সড লাইন
 
 window.game = { startGame, player, gameState: GameState };
 
