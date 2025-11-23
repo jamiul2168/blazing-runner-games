@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BLAZING RUNNER | FINAL FIX</title>
+    <title>BLAZING RUNNER | FINAL SINGLE FILE</title>
     
     <meta name="author" content="Jamiul Hasan">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet"> 
@@ -88,7 +88,7 @@
     </div>
 
     <script>
-        // সমস্ত গেম লজিক একটি প্রধান ফাংশনের মধ্যে আবদ্ধ
+        // সমস্ত গেম লজিক window.addEventListener('load', ...) এর মধ্যে আবদ্ধ করা হয়েছে DOM লোডিং নিশ্চিত করতে
         window.addEventListener('load', function() {
             // --- 1. GAMESTATE & CONFIGS ---
             const GameState = { READY: 'READY', RUNNING: 'RUNNING', OVER: 'OVER' };
@@ -296,7 +296,7 @@
 
             // --- 5. GAME LOGIC CORE ---
             
-            // গ্লোবাল ইনস্ট্যান্স (ইনিশিয়ালাইজড)
+            // গ্লোবাল ইনস্ট্যান্স (সবকিছু এখন DOM লোড হওয়ার পরে নিরাপদে তৈরি হবে)
             let soundManager;
             let mountains;
             let player;
@@ -447,7 +447,6 @@
             function startGame() {
                 if (gameState === GameState.RUNNING) return;
                 
-                // অবজেক্ট ইনিশিয়ালাইজ করা
                 if (!player) {
                     initializeGameObjects();
                 }
@@ -526,7 +525,7 @@
                 if (gameState === GameState.READY) {
                     startGame();
                 } else if (gameState === GameState.RUNNING) {
-                    player.jump();
+                    if(player) player.jump();
                     jumpFlashTimer = 1; 
                 }
             }
@@ -543,10 +542,7 @@
 
             touchArea.addEventListener('mousedown', handleJumpInput); 
             touchArea.addEventListener('touchstart', handleJumpInput); 
-            startButton.addEventListener('click', handleJumpInput); // ফিক্সড: বাটন ক্লিক লিসেনার
-
-            // গ্লোবালি অ্যাক্সেসযোগ্য করার জন্য (যদিও একটি ফাইলে প্রয়োজন নেই)
-            window.game = { startGame, player, gameState: GameState };
+            startButton.addEventListener('click', handleJumpInput); 
 
             // হাই স্কোর লোড ও ডিসপ্লে
             highScore = localStorage.getItem('runnerHighScore') || 0;
