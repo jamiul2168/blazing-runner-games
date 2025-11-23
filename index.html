@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BLAZING RUNNER | Single File Pro Arcade</title>
+    <title>BLAZING RUNNER | FINAL FIX</title>
     
     <meta name="author" content="Jamiul Hasan">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet"> 
@@ -88,468 +88,470 @@
     </div>
 
     <script>
-        // --- 1. GAMESTATE & CONFIGS ---
-        const GameState = { READY: 'READY', RUNNING: 'RUNNING', OVER: 'OVER' };
-        let gameState = GameState.READY;
+        // সমস্ত গেম লজিক একটি প্রধান ফাংশনের মধ্যে আবদ্ধ
+        window.addEventListener('load', function() {
+            // --- 1. GAMESTATE & CONFIGS ---
+            const GameState = { READY: 'READY', RUNNING: 'RUNNING', OVER: 'OVER' };
+            let gameState = GameState.READY;
 
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        const scoreDisplay = document.getElementById('score-display');
-        const gameOverScreen = document.getElementById('game-over-screen');
-        const startScreen = document.getElementById('start-screen');
-        const touchArea = document.getElementById('touch-area');
-        const startButton = document.getElementById('startButton');
+            // DOM উপাদানগুলো এখানে নিরাপদে সংজ্ঞায়িত করা হয়েছে
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            const scoreDisplay = document.getElementById('score-display');
+            const gameOverScreen = document.getElementById('game-over-screen');
+            const startScreen = document.getElementById('start-screen');
+            const touchArea = document.getElementById('touch-area');
+            const startButton = document.getElementById('startButton');
 
-        const GROUND_Y = canvas.height - 40;
-        const INITIAL_SPEED = 300; 
-        const MAX_SPEED = 700; 
-        const MAX_JUMP_VELOCITY = -550; 
-        const FPS_MULTIPLIER = 1000; 
+            const GROUND_Y = canvas.height - 40;
+            const INITIAL_SPEED = 300; 
+            const MAX_SPEED = 700; 
+            const MAX_JUMP_VELOCITY = -550; 
+            const FPS_MULTIPLIER = 1000; 
 
-        // AI CONFIG
-        const AI_SUCCESS_THRESHOLD = 5; 
-        const AI_GRAVITY_MODIFIER = 200; 
-        const DIFFICULTY_INCREMENT = 3; 
-        const BOOST_SCORE_INTERVAL = 500;
-        const SPEED_BOOST_AMOUNT = 100; 
-        const GROUND_TILE_WIDTH = 50; 
+            // AI CONFIG
+            const AI_SUCCESS_THRESHOLD = 5; 
+            const AI_GRAVITY_MODIFIER = 200; 
+            const DIFFICULTY_INCREMENT = 3; 
+            const BOOST_SCORE_INTERVAL = 500;
+            const SPEED_BOOST_AMOUNT = 100; 
+            const GROUND_TILE_WIDTH = 50; 
 
-        // --- 2. GLOBAL VARIABLES ---
-        let GAME_SPEED = INITIAL_SPEED;
-        let score = 0;
-        let highScore = 0;
-        let lastBoostScore = 0;
-        let frameCount = 0;
-        let groundX = 0;
-        let mountainX = 0;
-        let animationFrameId;
-        let lastTime = 0;
-        let deltaTime = 0; 
-        let jumpFlashTimer = 0; 
-        let lastObstacleHeight = 0;
-        let lastObstacleSpawnedTime = 0;
+            // --- 2. GLOBAL VARIABLES ---
+            let GAME_SPEED = INITIAL_SPEED;
+            let score = 0;
+            let highScore = 0;
+            let lastBoostScore = 0;
+            let frameCount = 0;
+            let groundX = 0;
+            let mountainX = 0;
+            let animationFrameId;
+            let lastTime = 0;
+            let deltaTime = 0; 
+            let jumpFlashTimer = 0; 
+            let lastObstacleHeight = 0;
+            let lastObstacleSpawnedTime = 0;
 
 
-        // --- 3. SOUND MANAGER (audio.js content) ---
-        const ASSET_PATH = 'assets/';
+            // --- 3. SOUND MANAGER (Class definition) ---
+            const ASSET_PATH = 'assets/';
 
-        class SoundManager {
-            constructor() {
-                this.jumpSound = this.loadSound('jump.mp3'); 
-                this.gameOverSound = this.loadSound('game_over.mp3'); 
-                this.boostSound = { play: () => console.warn("Boost sound not available.") };
-            }
-
-            loadSound(filename) {
-                try {
-                    const audio = new Audio(ASSET_PATH + filename);
-                    audio.preload = 'auto'; 
-                    return audio;
-                } catch (e) {
-                    console.error(`Failed to load audio: ${filename}`, e);
-                    return { play: () => console.warn(`Sound file not available: ${filename}`) };
+            class SoundManager {
+                constructor() {
+                    this.jumpSound = this.loadSound('jump.mp3'); 
+                    this.gameOverSound = this.loadSound('game_over.mp3'); 
+                    this.boostSound = { play: () => console.warn("Boost sound not available.") };
                 }
-            }
 
-            playSound(audioElement) {
-                if (audioElement && audioElement.src) {
-                    audioElement.currentTime = 0; 
-                    audioElement.play().catch(e => {
-                        console.warn("Sound playback blocked by browser policy. Try interacting first.", e);
-                    });
+                loadSound(filename) {
+                    try {
+                        const audio = new Audio(ASSET_PATH + filename);
+                        audio.preload = 'auto'; 
+                        return audio;
+                    } catch (e) {
+                        return { play: () => console.warn(`Sound file not available: ${filename}`) };
+                    }
                 }
-            }
 
-            playJump() { this.playSound(this.jumpSound); }
-            playGameOver() { this.playSound(this.gameOverSound); }
-            playBoost() { this.boostSound.play(); } 
-        }
-        
-        // --- 4. ENTITIES (entities.js content) ---
-
-        class Mountains {
-            constructor(canvas, GROUND_Y) {
-                this.ctx = canvas.getContext('2d');
-                this.width = canvas.width;
-                this.GROUND_Y = GROUND_Y;
-                this.mountainX = 0;
-            }
-            draw(GAME_SPEED) {
-                const speedFactor = 0.2; 
-                const FIXED_MOVEMENT = (GAME_SPEED / 1000) * (1000/60); 
-
-                this.mountainX = (this.mountainX - FIXED_MOVEMENT * speedFactor) % this.width;
-
-                this.ctx.fillStyle = '#1e1e3f'; 
-
-                for (let i = 0; i < 2; i++) {
-                    const xOffset = this.mountainX + i * this.width;
-                    
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(xOffset - 100, this.GROUND_Y);
-                    this.ctx.lineTo(xOffset + 250, this.GROUND_Y - 120);
-                    this.ctx.lineTo(xOffset + 500, this.GROUND_Y - 70);
-                    this.ctx.lineTo(xOffset + 850, this.GROUND_Y - 180);
-                    this.ctx.lineTo(xOffset + 1000, this.GROUND_Y);
-                    this.ctx.closePath();
-                    this.ctx.fill();
+                playSound(audioElement) {
+                    if (audioElement && audioElement.src) {
+                        audioElement.currentTime = 0; 
+                        audioElement.play().catch(e => {
+                            console.warn("Sound playback blocked by browser policy. Try interacting first.", e);
+                        });
+                    }
                 }
-            }
-        }
 
-        class Player {
-            constructor(canvas, GROUND_Y, MAX_JUMP_VELOCITY, soundManager) {
-                this.ctx = canvas.getContext('2d');
-                this.soundManager = soundManager;
-                this.GROUND_Y = GROUND_Y;
-
-                this.baseGravity = 1800; 
-                this.baseMaxJumpVelocity = MAX_JUMP_VELOCITY; 
-
-                this.gravity = this.baseGravity; 
-                this.MAX_JUMP_VELOCITY = this.baseMaxJumpVelocity; 
-                
-                this.initialY = GROUND_Y - 50;
-                this.x = 50; this.y = this.initialY; this.width = 30; this.height = 50;
-                this.velocityY = 0; this.isJumping = false;
-                this.hitboxOffset = {x: 5, y: 5, width: -10, height: -5}; 
-                this.successfulJumps = 0; 
-            }
-
-            reset() {
-                this.y = this.initialY;
-                this.velocityY = 0;
-                this.isJumping = false;
-                this.successfulJumps = 0; 
-                this.gravity = this.baseGravity; 
-                this.MAX_JUMP_VELOCITY = this.baseMaxJumpVelocity; 
-            }
-
-            draw(frameCount, gameState) {
-                this.ctx.shadowColor = '#FF00FF'; 
-                this.ctx.shadowBlur = 10;
-                this.ctx.fillStyle = '#FF00FF'; 
-                this.ctx.fillRect(this.x, this.y, this.width, this.height);
-                this.ctx.shadowBlur = 0; 
-
-                if (gameState === GameState.RUNNING && !this.isJumping) {
-                    this.ctx.fillStyle = (frameCount % 8 < 4) ? '#00FFFF' : '#00AABB'; 
-                    this.ctx.fillRect(this.x + 5, this.y + this.height - 10, 5, 10); 
-                    this.ctx.fillRect(this.x + 20, this.y + this.height - 10, 5, 10);
-                }
+                playJump() { this.playSound(this.jumpSound); }
+                playGameOver() { this.playSound(this.gameOverSound); }
+                playBoost() { this.boostSound.play(); } 
             }
             
-            update(dt) {
-                this.velocityY += this.gravity * dt;
-                this.y += this.velocityY * dt;
+            // --- 4. ENTITIES (Class definitions) ---
 
-                if (this.y + this.height > this.GROUND_Y) {
-                    this.y = this.GROUND_Y - this.height;
-                    this.velocityY = 0;
-                    this.isJumping = false;
+            class Mountains {
+                constructor(canvas, GROUND_Y) {
+                    this.ctx = canvas.getContext('2d');
+                    this.width = canvas.width;
+                    this.GROUND_Y = GROUND_Y;
+                    this.mountainX = 0;
                 }
-            }
-            
-            jump() {
-                if (!this.isJumping) {
-                    this.isJumping = true;
-                    this.velocityY = this.MAX_JUMP_VELOCITY; 
-                    this.soundManager.playJump();
-                }
-            }
-            
-            getHitbox() {
-                return {
-                    x: this.x + this.hitboxOffset.x,
-                    y: this.y + this.hitboxOffset.y,
-                    width: this.width + this.hitboxOffset.width,
-                    height: this.height + this.hitboxOffset.height
-                };
-            }
-        }
+                draw(GAME_SPEED) {
+                    const speedFactor = 0.2; 
+                    const FIXED_MOVEMENT = (GAME_SPEED / 1000) * (1000/60); 
 
-        class Obstacle {
-            constructor(canvas, GROUND_Y, customHeight) {
-                this.ctx = canvas.getContext('2d');
-                this.width = Math.random() * 20 + 20;
-                this.height = customHeight || (Math.random() * 30 + 30);
-                this.y = GROUND_Y - this.height;
-                this.x = canvas.width;
-                this.color = '#FF00FF'; 
-                this.passed = false; 
-            }
-            draw() {
-                this.ctx.shadowColor = '#FF00FF';
-                this.ctx.shadowBlur = 10;
-                this.ctx.fillStyle = this.color;
-                this.ctx.fillRect(this.x, this.y, this.width, this.height);
-                this.ctx.shadowBlur = 0;
-            }
-            update(GAME_SPEED) {
-                const FIXED_MOVEMENT = (GAME_SPEED / 1000) * (1000/60); 
-                this.x -= FIXED_MOVEMENT;
-            }
-        }
+                    this.mountainX = (this.mountainX - FIXED_MOVEMENT * speedFactor) % this.width;
 
-        // --- 5. GAME LOGIC CORE (game.js content) ---
-        
-        // গ্লোবাল ইনস্ট্যান্স
-        let soundManager;
-        let mountains;
-        let player;
-        let obstacles = [];
+                    this.ctx.fillStyle = '#1e1e3f'; 
 
-        // গেম অবজেক্ট ইনিশিয়ালাইজার
-        function initializeGameObjects() {
-            soundManager = new SoundManager();
-            mountains = new Mountains(canvas, GROUND_Y); 
-            player = new Player(canvas, GROUND_Y, MAX_JUMP_VELOCITY, soundManager);
-            obstacles = []; 
-        }
-
-        function drawGround() {
-            const FIXED_MOVEMENT = (GAME_SPEED / 1000) * (1000/60); 
-            groundX = (groundX - FIXED_MOVEMENT) % GROUND_TILE_WIDTH;
-            
-            ctx.fillStyle = '#0f0a1c'; 
-            ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
-            
-            ctx.shadowColor = '#00FFFF';
-            ctx.shadowBlur = 5;
-            ctx.strokeStyle = '#00FFFF';
-            ctx.lineWidth = 2;
-            for (let x = groundX; x < canvas.width; x += GROUND_TILE_WIDTH / 2) {
-                ctx.beginPath();
-                ctx.moveTo(x, GROUND_Y);
-                ctx.lineTo(x, GROUND_Y + 10);
-                ctx.stroke();
-            }
-
-            ctx.shadowBlur = 0;
-            ctx.strokeStyle = '#222';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(0, GROUND_Y);
-            ctx.lineTo(canvas.width, GROUND_Y);
-            ctx.stroke();
-        }
-
-        function dynamicDifficulty() {
-            if (GAME_SPEED < MAX_SPEED) {
-                GAME_SPEED += (DIFFICULTY_INCREMENT / FPS_MULTIPLIER) * deltaTime;
-            }
-
-            if (score > lastBoostScore + BOOST_SCORE_INTERVAL) {
-                if (GAME_SPEED + SPEED_BOOST_AMOUNT < MAX_SPEED) {
-                     GAME_SPEED += SPEED_BOOST_AMOUNT;
-                } else {
-                    GAME_SPEED = MAX_SPEED;
-                }
-                lastBoostScore = score;
-            }
-
-            if (player && player.successfulJumps >= AI_SUCCESS_THRESHOLD) {
-                if (player.gravity < player.baseGravity + AI_GRAVITY_MODIFIER * 3) {
-                    player.gravity += AI_GRAVITY_MODIFIER; 
-                    player.MAX_JUMP_VELOCITY -= 50; 
-                    player.successfulJumps = 0;
-                }
-            }
-
-            let minGap = 80;
-            let maxGap = 200;
-            const gapFactor = 1 - (GAME_SPEED / MAX_SPEED) * 0.7;
-            const currentGap = minGap + (maxGap - minGap) * gapFactor;
-            return currentGap;
-        }
-
-        let obstacleSpawnTimer = 0;
-        function generateObstacles() {
-            const spawnGap = dynamicDifficulty();
-
-            if (obstacleSpawnTimer <= 0) {
-                let randomHeight = Math.random() * 30 + 30; 
-                const currentTime = performance.now();
-                
-                if (player && player.isJumping && player.velocityY < 0 && currentTime - lastObstacleSpawnedTime < 500) {
-                     obstacleSpawnTimer = 200; 
-                     return; 
-                }
-
-                if (lastObstacleHeight > 50 && Math.random() < 0.6) {
-                    randomHeight = Math.random() * 15 + 20; 
-                }
-
-                const newObstacle = new Obstacle(canvas, GROUND_Y, randomHeight);
-                obstacles.push(newObstacle);
-
-                lastObstacleHeight = newObstacle.height;
-                lastObstacleSpawnedTime = currentTime;
-                obstacleSpawnTimer = spawnGap + Math.random() * 50;
-
-            } else {
-                obstacleSpawnTimer -= deltaTime; 
-            }
-        }
-
-        function trackPlayerSuccess() {
-            if (!player) return;
-            const playerBaseY = player.GROUND_Y - player.height;
-            
-            if (player.y < playerBaseY && player.velocityY > 0) {
-                const nearestObstacle = obstacles[0];
-                
-                if (nearestObstacle && nearestObstacle.x + nearestObstacle.width < player.x) {
-                    if (!nearestObstacle.passed) { 
-                        player.successfulJumps++; 
-                        nearestObstacle.passed = true;
+                    for (let i = 0; i < 2; i++) {
+                        const xOffset = this.mountainX + i * this.width;
+                        
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(xOffset - 100, this.GROUND_Y);
+                        this.ctx.lineTo(xOffset + 250, this.GROUND_Y - 120);
+                        this.ctx.lineTo(xOffset + 500, this.GROUND_Y - 70);
+                        this.ctx.lineTo(xOffset + 850, this.GROUND_Y - 180);
+                        this.ctx.lineTo(xOffset + 1000, this.GROUND_Y);
+                        this.ctx.closePath();
+                        this.ctx.fill();
                     }
                 }
             }
-        }
 
-        function checkCollision() {
-            if (!player) return false;
-            const playerHitbox = player.getHitbox();
-            for (let i = 0; i < obstacles.length; i++) {
-                let obs = obstacles[i];
+            class Player {
+                constructor(canvas, GROUND_Y, MAX_JUMP_VELOCITY, soundManager) {
+                    this.ctx = canvas.getContext('2d');
+                    this.soundManager = soundManager;
+                    this.GROUND_Y = GROUND_Y;
+                    this.MAX_JUMP_VELOCITY = MAX_JUMP_VELOCITY; 
+
+                    this.baseGravity = 1800; 
+                    this.baseMaxJumpVelocity = MAX_JUMP_VELOCITY; 
+
+                    this.gravity = this.baseGravity; 
+                    
+                    this.initialY = GROUND_Y - 50;
+                    this.x = 50; this.y = this.initialY; this.width = 30; this.height = 50;
+                    this.velocityY = 0; this.isJumping = false;
+                    this.hitboxOffset = {x: 5, y: 5, width: -10, height: -5}; 
+                    this.successfulJumps = 0; 
+                }
+
+                reset() {
+                    this.y = this.initialY;
+                    this.velocityY = 0;
+                    this.isJumping = false;
+                    this.successfulJumps = 0; 
+                    this.gravity = this.baseGravity; 
+                    this.MAX_JUMP_VELOCITY = this.baseMaxJumpVelocity; 
+                }
+
+                draw(frameCount, gameState) {
+                    this.ctx.shadowColor = '#FF00FF'; 
+                    this.ctx.shadowBlur = 10;
+                    this.ctx.fillStyle = '#FF00FF'; 
+                    this.ctx.fillRect(this.x, this.y, this.width, this.height);
+                    this.ctx.shadowBlur = 0; 
+
+                    if (gameState === GameState.RUNNING && !this.isJumping) {
+                        this.ctx.fillStyle = (frameCount % 8 < 4) ? '#00FFFF' : '#00AABB'; 
+                        this.ctx.fillRect(this.x + 5, this.y + this.height - 10, 5, 10); 
+                        this.ctx.fillRect(this.x + 20, this.y + this.height - 10, 5, 10);
+                    }
+                }
                 
-                if (
-                    playerHitbox.x < obs.x + obs.width &&
-                    playerHitbox.x + playerHitbox.width > obs.x &&
-                    playerHitbox.y < obs.y + obs.height &&
-                    playerHitbox.y + playerHitbox.height > obs.y
-                ) {
-                    endGame();
-                    return true;
+                update(dt) {
+                    this.velocityY += this.gravity * dt;
+                    this.y += this.velocityY * dt;
+
+                    if (this.y + this.height > this.GROUND_Y) {
+                        this.y = this.GROUND_Y - this.height;
+                        this.velocityY = 0;
+                        this.isJumping = false;
+                    }
+                }
+                
+                jump() {
+                    if (!this.isJumping) {
+                        this.isJumping = true;
+                        this.velocityY = this.MAX_JUMP_VELOCITY; 
+                        this.soundManager.playJump();
+                    }
+                }
+                
+                getHitbox() {
+                    return {
+                        x: this.x + this.hitboxOffset.x,
+                        y: this.y + this.hitboxOffset.y,
+                        width: this.width + this.hitboxOffset.width,
+                        height: this.height + this.hitboxOffset.height
+                    };
                 }
             }
-            return false;
-        }
 
-        function resetGame() {
-            if (score > highScore) {
-                highScore = score;
-                localStorage.setItem('runnerHighScore', highScore);
-            }
-            score = 0;
-            GAME_SPEED = INITIAL_SPEED;
-            lastBoostScore = 0;
-            obstacles = [];
-            if (player) player.reset();
-            frameCount = 0;
-            highScore = localStorage.getItem('runnerHighScore') || 0;
-        }
-
-        function startGame() {
-            if (gameState === GameState.RUNNING) return;
-            
-            // অবজেক্ট ইনিশিয়ালাইজ করা: ReferenceError ঠিক করার মূল কারণ
-            if (!player) {
-                initializeGameObjects();
-            }
-
-            gameState = GameState.RUNNING;
-            startScreen.classList.remove('active');
-            gameOverScreen.classList.remove('active');
-            
-            resetGame();
-            lastTime = performance.now(); 
-            gameLoop(lastTime);
-        }
-
-        function endGame() {
-            if (gameState === GameState.OVER) return;
-            gameState = GameState.OVER;
-            cancelAnimationFrame(animationFrameId);
-            
-            document.getElementById('final-score').innerHTML = 
-                `Final Score: <span style="color:#FF00FF">${score.toString().padStart(6, '0')}</span><br>
-                 High Score: ${highScore.toString().padStart(6, '0')}`;
-            gameOverScreen.classList.add('active');
-            if (soundManager) soundManager.playGameOver();
-        }
-
-        function gameLoop(currentTime) {
-            deltaTime = currentTime - lastTime;
-            lastTime = currentTime;
-            const dt = deltaTime / FPS_MULTIPLIER; 
-
-            if (gameState !== GameState.RUNNING) {
-                if (jumpFlashTimer > 0) jumpFlashTimer -= dt;
-                return;
+            class Obstacle {
+                constructor(canvas, GROUND_Y, customHeight) {
+                    this.ctx = canvas.getContext('2d');
+                    this.width = Math.random() * 20 + 20;
+                    this.height = customHeight || (Math.random() * 30 + 30);
+                    this.y = GROUND_Y - this.height;
+                    this.x = canvas.width;
+                    this.color = '#FF00FF'; 
+                    this.passed = false; 
+                }
+                draw() {
+                    this.ctx.shadowColor = '#FF00FF';
+                    this.ctx.shadowBlur = 10;
+                    this.ctx.fillStyle = this.color;
+                    this.ctx.fillRect(this.x, this.y, this.width, this.height);
+                    this.ctx.shadowBlur = 0;
+                }
+                update(GAME_SPEED) {
+                    const FIXED_MOVEMENT = (GAME_SPEED / 1000) * (1000/60); 
+                    this.x -= FIXED_MOVEMENT;
+                }
             }
 
-            // A. আপডেট
-            player.update(dt); 
-            generateObstacles();
-            obstacles.forEach(obs => obs.update(GAME_SPEED));
-            obstacles = obstacles.filter(obs => obs.x + obs.width > 0);
-            checkCollision();
-            trackPlayerSuccess();
 
-            // B. ড্র
-            ctx.fillStyle = '#0f0a1c'; 
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            mountains.draw(GAME_SPEED);
-            drawGround();
-            player.draw(frameCount, gameState);
-            obstacles.forEach(obs => obs.draw());
+            // --- 5. GAME LOGIC CORE ---
+            
+            // গ্লোবাল ইনস্ট্যান্স (ইনিশিয়ালাইজড)
+            let soundManager;
+            let mountains;
+            let player;
+            let obstacles = [];
 
-            // C. UX/UI ফিডব্যাক
-            if (jumpFlashTimer > 0) {
-                ctx.fillStyle = `rgba(0, 255, 255, ${jumpFlashTimer * 0.5})`; 
+            // গেম অবজেক্ট ইনিশিয়ালাইজার
+            function initializeGameObjects() {
+                soundManager = new SoundManager();
+                mountains = new Mountains(canvas, GROUND_Y); 
+                player = new Player(canvas, GROUND_Y, MAX_JUMP_VELOCITY, soundManager);
+                obstacles = []; 
+            }
+
+            function drawGround() {
+                const FIXED_MOVEMENT = (GAME_SPEED / 1000) * (1000/60); 
+                groundX = (groundX - FIXED_MOVEMENT) % GROUND_TILE_WIDTH;
+                
+                ctx.fillStyle = '#0f0a1c'; 
+                ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
+                
+                ctx.shadowColor = '#00FFFF';
+                ctx.shadowBlur = 5;
+                ctx.strokeStyle = '#00FFFF';
+                ctx.lineWidth = 2;
+                for (let x = groundX; x < canvas.width; x += GROUND_TILE_WIDTH / 2) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, GROUND_Y);
+                    ctx.lineTo(x, GROUND_Y + 10);
+                    ctx.stroke();
+                }
+
+                ctx.shadowBlur = 0;
+                ctx.strokeStyle = '#222';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo(0, GROUND_Y);
+                ctx.lineTo(canvas.width, GROUND_Y);
+                ctx.stroke();
+            }
+
+            function dynamicDifficulty() {
+                if (GAME_SPEED < MAX_SPEED) {
+                    GAME_SPEED += (DIFFICULTY_INCREMENT / FPS_MULTIPLIER) * deltaTime;
+                }
+
+                if (score > lastBoostScore + BOOST_SCORE_INTERVAL) {
+                    if (GAME_SPEED + SPEED_BOOST_AMOUNT < MAX_SPEED) {
+                         GAME_SPEED += SPEED_BOOST_AMOUNT;
+                    } else {
+                        GAME_SPEED = MAX_SPEED;
+                    }
+                    lastBoostScore = score;
+                }
+
+                if (player && player.successfulJumps >= AI_SUCCESS_THRESHOLD) {
+                    if (player.gravity < player.baseGravity + AI_GRAVITY_MODIFIER * 3) {
+                        player.gravity += AI_GRAVITY_MODIFIER; 
+                        player.MAX_JUMP_VELOCITY -= 50; 
+                        player.successfulJumps = 0;
+                    }
+                }
+
+                let minGap = 80;
+                let maxGap = 200;
+                const gapFactor = 1 - (GAME_SPEED / MAX_SPEED) * 0.7;
+                const currentGap = minGap + (maxGap - minGap) * gapFactor;
+                return currentGap;
+            }
+
+            let obstacleSpawnTimer = 0;
+            function generateObstacles() {
+                const spawnGap = dynamicDifficulty();
+
+                if (obstacleSpawnTimer <= 0) {
+                    let randomHeight = Math.random() * 30 + 30; 
+                    const currentTime = performance.now();
+                    
+                    if (player && player.isJumping && player.velocityY < 0 && currentTime - lastObstacleSpawnedTime < 500) {
+                         obstacleSpawnTimer = 200; 
+                         return; 
+                    }
+
+                    if (lastObstacleHeight > 50 && Math.random() < 0.6) {
+                        randomHeight = Math.random() * 15 + 20; 
+                    }
+
+                    const newObstacle = new Obstacle(canvas, GROUND_Y, randomHeight);
+                    obstacles.push(newObstacle);
+
+                    lastObstacleHeight = newObstacle.height;
+                    lastObstacleSpawnedTime = currentTime;
+                    obstacleSpawnTimer = spawnGap + Math.random() * 50;
+
+                } else {
+                    obstacleSpawnTimer -= deltaTime; 
+                }
+            }
+
+            function trackPlayerSuccess() {
+                if (!player) return;
+                const playerBaseY = player.GROUND_Y - player.height;
+                
+                if (player.y < playerBaseY && player.velocityY > 0) {
+                    const nearestObstacle = obstacles[0];
+                    
+                    if (nearestObstacle && nearestObstacle.x + nearestObstacle.width < player.x) {
+                        if (!nearestObstacle.passed) { 
+                            player.successfulJumps++; 
+                            nearestObstacle.passed = true;
+                        }
+                    }
+                }
+            }
+
+            function checkCollision() {
+                if (!player) return false;
+                const playerHitbox = player.getHitbox();
+                for (let i = 0; i < obstacles.length; i++) {
+                    let obs = obstacles[i];
+                    
+                    if (
+                        playerHitbox.x < obs.x + obs.width &&
+                        playerHitbox.x + playerHitbox.width > obs.x &&
+                        playerHitbox.y < obs.y + obs.height &&
+                        playerHitbox.y + playerHitbox.height > obs.y
+                    ) {
+                        endGame();
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function resetGame() {
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('runnerHighScore', highScore);
+                }
+                score = 0;
+                GAME_SPEED = INITIAL_SPEED;
+                lastBoostScore = 0;
+                obstacles = [];
+                if (player) player.reset();
+                frameCount = 0;
+                highScore = localStorage.getItem('runnerHighScore') || 0;
+            }
+
+            function startGame() {
+                if (gameState === GameState.RUNNING) return;
+                
+                // অবজেক্ট ইনিশিয়ালাইজ করা
+                if (!player) {
+                    initializeGameObjects();
+                }
+
+                gameState = GameState.RUNNING;
+                startScreen.classList.remove('active');
+                gameOverScreen.classList.remove('active');
+                
+                resetGame();
+                lastTime = performance.now(); 
+                gameLoop(lastTime);
+            }
+
+            function endGame() {
+                if (gameState === GameState.OVER) return;
+                gameState = GameState.OVER;
+                cancelAnimationFrame(animationFrameId);
+                
+                document.getElementById('final-score').innerHTML = 
+                    `Final Score: <span style="color:#FF00FF">${score.toString().padStart(6, '0')}</span><br>
+                     High Score: ${highScore.toString().padStart(6, '0')}`;
+                gameOverScreen.classList.add('active');
+                if (soundManager) soundManager.playGameOver();
+            }
+
+            function gameLoop(currentTime) {
+                deltaTime = currentTime - lastTime;
+                lastTime = currentTime;
+                const dt = deltaTime / FPS_MULTIPLIER; 
+
+                if (gameState !== GameState.RUNNING) {
+                    if (jumpFlashTimer > 0) jumpFlashTimer -= dt;
+                    return;
+                }
+
+                // A. আপডেট
+                player.update(dt); 
+                generateObstacles();
+                obstacles.forEach(obs => obs.update(GAME_SPEED));
+                obstacles = obstacles.filter(obs => obs.x + obs.width > 0);
+                checkCollision();
+                trackPlayerSuccess();
+
+                // B. ড্র
+                ctx.fillStyle = '#0f0a1c'; 
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-                jumpFlashTimer -= dt * 2; 
+                mountains.draw(GAME_SPEED);
+                drawGround();
+                player.draw(frameCount, gameState);
+                obstacles.forEach(obs => obs.draw());
+
+                // C. UX/UI ফিডব্যাক
+                if (jumpFlashTimer > 0) {
+                    ctx.fillStyle = `rgba(0, 255, 255, ${jumpFlashTimer * 0.5})`; 
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    jumpFlashTimer -= dt * 2; 
+                }
+
+                // D. স্কোরিং
+                frameCount++;
+                score += Math.floor(GAME_SPEED * dt); 
+                
+                let scoreText = score.toString().padStart(6, '0');
+                if (score > highScore && score > 0) {
+                    scoreText = `<span style="color:#FFD700; text-shadow: 0 0 5px #FFD700;">${scoreText}</span>`;
+                }
+                scoreDisplay.innerHTML = 'SCORE: ' + scoreText;
+
+                animationFrameId = requestAnimationFrame(gameLoop);
             }
 
-            // D. স্কোরিং
-            frameCount++;
-            score += Math.floor(GAME_SPEED * dt); 
-            
-            let scoreText = score.toString().padStart(6, '0');
-            if (score > highScore && score > 0) {
-                scoreText = `<span style="color:#FFD700; text-shadow: 0 0 5px #FFD700;">${scoreText}</span>`;
+            // --- 6. INPUT HANDLING ---
+            function handleJumpInput(event) {
+                if (event && event.type === 'touchstart') { event.preventDefault(); }
+                
+                if (gameState === GameState.READY) {
+                    startGame();
+                } else if (gameState === GameState.RUNNING) {
+                    player.jump();
+                    jumpFlashTimer = 1; 
+                }
             }
-            scoreDisplay.innerHTML = 'SCORE: ' + scoreText;
 
-            animationFrameId = requestAnimationFrame(gameLoop);
-        }
+            // ইভেন্ট লিসেনার সেটআপ
+            document.addEventListener('keydown', (event) => {
+                if (event.code === 'Space' || event.code === 'ArrowUp') {
+                    handleJumpInput(event);
+                }
+                if (gameState === GameState.OVER && (event.code === 'Enter' || event.code === 'KeyR')) {
+                     location.reload(); 
+                }
+            });
 
-        // --- 6. INPUT HANDLING ---
-        function handleJumpInput(event) {
-            if (event && event.type === 'touchstart') { event.preventDefault(); }
-            
-            if (gameState === GameState.READY) {
-                startGame();
-            } else if (gameState === GameState.RUNNING) {
-                player.jump();
-                jumpFlashTimer = 1; 
-            }
-        }
+            touchArea.addEventListener('mousedown', handleJumpInput); 
+            touchArea.addEventListener('touchstart', handleJumpInput); 
+            startButton.addEventListener('click', handleJumpInput); // ফিক্সড: বাটন ক্লিক লিসেনার
 
-        // ইভেন্ট লিসেনার সেটআপ
-        document.addEventListener('keydown', (event) => {
-            if (event.code === 'Space' || event.code === 'ArrowUp') {
-                handleJumpInput(event);
-            }
-            if (gameState === GameState.OVER && (event.code === 'Enter' || event.code === 'KeyR')) {
-                 location.reload(); 
-            }
-        });
+            // গ্লোবালি অ্যাক্সেসযোগ্য করার জন্য (যদিও একটি ফাইলে প্রয়োজন নেই)
+            window.game = { startGame, player, gameState: GameState };
 
-        touchArea.addEventListener('mousedown', handleJumpInput); 
-        touchArea.addEventListener('touchstart', handleJumpInput); 
-        startButton.addEventListener('click', handleJumpInput); // ফিক্সড: বাটন ক্লিক লিসেনার
-
-        // গ্লোবালি অ্যাক্সেসযোগ্য করার জন্য (যদিও একটি ফাইলে প্রয়োজন নেই, তবুও কাঠামোর জন্য রাখা হলো)
-        window.game = { startGame, player, gameState: GameState };
-
-        window.onload = () => {
+            // হাই স্কোর লোড ও ডিসপ্লে
             highScore = localStorage.getItem('runnerHighScore') || 0;
-            // স্টার্ট স্ক্রিনে হাই স্কোর ডিসপ্লে
             document.getElementById('final-score').innerHTML = `High Score: ${highScore.toString().padStart(6, '0')}`;
-        };
+        });
     </script>
 </body>
 </html>
